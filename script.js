@@ -1,1 +1,1602 @@
+  
+  // ===== CONTROLE DO LOADER =====
+  
+  let firebaseReady = false;
+  let imagesReady = false;
+  let timeoutReached = false;
+  
+  const loader = document.getElementById('loaderContainer');
+  
+  // Função para verificar se tudo está pronto e esconder o loader
+  function hideLoaderIfReady() {
+    if ((firebaseReady && imagesReady) || timeoutReached) {
+      if (loader && !loader.classList.contains('hidden')) {
+        setTimeout(() => {
+          loader.classList.add('hidden');
+        }, 300);
+      }
+    }
+  }
+  
+ 
+  
+  // Aguardar todas as imagens carregarem
+  window.addEventListener('load', () => {
+    imagesReady = true;
+    hideLoaderIfReady();
+  });
+  
+  // Flag para marcar quando Firebase está pronto
+  let firebaseInitialized = false;
+  
+  window.addEventListener('load', () => {
+    if (firebaseInitialized) {
+      firebaseReady = true;
+      hideLoaderIfReady();
+    }
+  });
 
+  // CONFIG FIREBASE
+  const firebaseConfig = {
+    apiKey: "AIzaSyClvq1ZwxUr1ACwXP0esfBbHR95U_QejWI",
+    authDomain: "biblioteca-b73c3.firebaseapp.com",
+    databaseURL: "https://biblioteca-b73c3-default-rtdb.firebaseio.com",
+    projectId: "biblioteca-b73c3",
+    storageBucket: "biblioteca-b73c3.firebasestorage.app",
+    messagingSenderId: "19441912897",
+    appId: "1:19441912897:web:e0a5ecde56a25657db0ac0",
+    measurementId: "G-1FPNRPMM9R"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const auth = firebase.auth();
+  
+  // Marca Firebase como pronto
+  firebaseInitialized = true;
+  firebaseReady = true;
+  hideLoaderIfReady();
+
+  // ------------------------------
+  // CONTADOR TOTAL
+  const totalVisitsEl = document.getElementById('totalVisits');
+  const totalRef = db.ref('totalVisits');
+ totalRef.once('value', snap => {
+    if (snap.val() === null) totalRef.set(0);
+});
+
+  totalRef.on('value', snap => { totalVisitsEl.innerText = snap.val() || 0; });
+
+  if (!sessionStorage.getItem("visited")) {
+    totalRef.transaction(current => (current || 0) + 1);
+    sessionStorage.setItem("visited", "true");
+  }
+
+  
+// REGISTRO DISCRETO DE ACESSOS (IP + User-Agent + Localização aproximada por IP + Dispositivo)
+if (!sessionStorage.getItem("ipLogged")) {
+
+  const acessosRef = db.ref('acessos');
+
+  // Garantir que a árvore 'acessos' exista
+  acessosRef.once('value').then(snap => {
+    if (!snap.exists()) {
+      acessosRef.set({}); // cria a árvore vazia
+    }
+  }).finally(() => {
+
+    // Pegar IP público
+    fetch('https://api.ipify.org?format=json')
+      .then(res => res.json())
+      .then(data => {
+        const ip = data.ip;
+
+        // hash simples do IP
+        function hashIp(s) {
+          let h = 0;
+          for (let i = 0; i < s.length; i++) {
+            h = (h << 5) - h + s.charCodeAt(i);
+            h |= 0;
+          }
+          return "ip_" + Math.abs(h);
+        }
+
+        const ipHash = hashIp(ip);
+        const ua = navigator.userAgent;
+        const ref = db.ref('acessos/' + ipHash);
+
+        // 🔧 Função melhorada para detectar tipo e nome do dispositivo (com ícones)
+        function detectarDispositivo() {
+          let tipo = "PC";
+          let nome = "Desconhecido";
+          let icone = "💻";
+
+          if (/Mobi|Android/i.test(ua)) {
+            tipo = "Mobile";
+            icone = "📱";
+          } else if (/iPad|Tablet/i.test(ua)) {
+            tipo = "Tablet";
+            icone = "📟";
+          }
+
+          if (/iPhone/i.test(ua)) {
+            nome = "iPhone";
+            icone = "🍎";
+          } else if (/iPad/i.test(ua)) {
+            nome = "iPad";
+            icone = "📟";
+          } else if (/Android/i.test(ua)) {
+            // Captura o modelo corretamente entre "Android ...; <modelo>"
+            const match = ua.match(/Android\s[\d\.]+;\s*([^;)]*)/i);
+            nome = match ? match[1].trim().replace(/Build.*/i, "").trim() : "Android";
+          } else if (/Windows/i.test(ua)) {
+            nome = "Windows PC";
+            icone = "💻";
+          } else if (/Macintosh|Mac OS/i.test(ua)) {
+            nome = "Mac";
+            icone = "🍎";
+          } else if (/Linux/i.test(ua)) {
+            nome = "Linux";
+            icone = "🐧";
+          }
+
+          // Evitar nomes curtos ou bugados tipo "K"
+          if (nome.length <= 2 || nome === "K") nome = "Android (modelo não identificado)";
+
+          const nomeFormatado = `${icone} ${tipo} / ${nome}`;
+          return { tipo, nome: nomeFormatado };
+        }
+
+        const dispositivo = detectarDispositivo();
+
+        // função para salvar no banco
+        const salvarDados = (latitude, longitude) => {
+          ref.once('value').then(snap => {
+            const MIN_INTERVAL = 10 * 60 * 1000; // 10 minutos
+            if (!snap.exists()) {
+              ref.set({
+                firstSeen: Date.now(),
+                lastSeen: Date.now(),
+                ua: ua,
+                ip: ip,
+                count: 1,
+                latitude: latitude || null,
+                longitude: longitude || null,
+                deviceType: dispositivo.tipo,
+                deviceName: dispositivo.nome
+              });
+            } else {
+              const data = snap.val();
+              const lastSeen = data.lastSeen || 0;
+              if (Date.now() - lastSeen > MIN_INTERVAL) {
+                ref.update({
+                  lastSeen: Date.now(),
+                  count: data.count + 1,
+                  latitude: latitude || data.latitude || null,
+                  longitude: longitude || data.longitude || null,
+                  deviceType: dispositivo.tipo,
+                  deviceName: dispositivo.nome
+                });
+              }
+            }
+          });
+        };
+
+        // pegar localização aproximada pelo IP
+        fetch(`https://ipapi.co/${ip}/json/`)
+          .then(res => res.json())
+          .then(loc => {
+            const latitude = loc.latitude || null;
+            const longitude = loc.longitude || null;
+            salvarDados(latitude, longitude);
+          })
+          .catch(err => {
+            console.warn("Erro ao obter localização por IP:", err);
+            salvarDados(null, null);
+          });
+
+      });
+
+    sessionStorage.setItem("ipLogged", "true");
+  });
+}
+ 
+const painel = document.getElementById('painelAdmin');
+const tabContent = document.getElementById('tabContent');
+const abas = painel.querySelectorAll('.tabs button');
+
+// Garantir que a página não role enquanto o cursor estiver sobre o painel
+let _prevBodyOverflow = null;
+painel.addEventListener('mouseenter', () => {
+  if (getComputedStyle(painel).display === 'block') {
+    _prevBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+});
+painel.addEventListener('mouseleave', () => {
+  // só restaura se tivermos salvo um valor anterior
+  if (_prevBodyOverflow !== null) {
+    document.body.style.overflow = _prevBodyOverflow || 'auto';
+    _prevBodyOverflow = null;
+  }
+});
+
+// Controle de abas
+abas.forEach(btn => {
+  btn.addEventListener('click', () => {
+    abas.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    atualizarPainel(btn.dataset.tab);
+  });
+});
+
+// Atalho Ctrl + Shift + V para abrir/fechar painel
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'v') {
+    const abrindo = (painel.style.display === 'none' || painel.style.display === '');
+    painel.style.display = abrindo ? 'block' : 'none';
+    if (abrindo) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    if (painel.style.display === 'block') atualizarPainel('resumo');
+  }
+});
+
+// Cache simples para leituras frequentes (evita múltiplas chamadas ao Firebase)
+const _cache = {};
+function getBooks() {
+  if (_cache.booksPromise) return _cache.booksPromise;
+  _cache.booksPromise = db.ref('books').once('value').then(snap => {
+    _cache.books = snap.val() || {};
+    return _cache.books;
+  }).catch(err => { _cache.booksPromise = null; throw err; });
+  return _cache.booksPromise;
+}
+
+// Nota: rolagem do painel agora usa comportamento nativo do navegador.
+// Removemos handlers customizados de `wheel`/`touch` que causavam jank.
+// O `body.style.overflow` já é alternado ao abrir/fechar o painel.
+
+// Função principal de atualização do painel
+function atualizarPainel(tab = 'resumo') {
+  tabContent.innerHTML = '';
+
+  /** ---------------- RESUMO ---------------- **/
+  if (tab === 'resumo') {
+    // Cards principais
+    const resumoDiv = document.createElement('div');
+    resumoDiv.classList.add('dashboard-cards');
+    tabContent.appendChild(resumoDiv);
+
+    const cards = [
+      { title: '👁️ Total Visitas', ref: 'totalVisits', value: 0, emoji: '👁️' },
+      { title: '📖 Livros', ref: 'books', value: 0, emoji: '📖' },
+      { title: '🌐 IPs Únicos', ref: 'acessos', value: 0, emoji: '🌐' },
+      { title: '⏰ Data/Hora', ref: null, value: '', emoji: '⏰' }
+    ];
+
+    cards.forEach(c => {
+      const card = document.createElement('div');
+      card.classList.add('dashboard-card');
+      card.innerHTML = `
+        <h3><span class="emoji-icon">${c.emoji}</span>${c.title.split('➜')[0]}</h3>
+        <p>${c.value || '...'}</p>
+      `;
+      resumoDiv.appendChild(card);
+
+      if (c.ref) {
+        db.ref(c.ref).once('value', snap => {
+          if (c.ref === 'books' || c.ref === 'acessos') {
+            card.querySelector('p').innerText = Object.keys(snap.val() || {}).length;
+          } else {
+            card.querySelector('p').innerText = snap.val() || 0;
+          }
+        });
+      } else {
+        function updateTime() {
+          const agora = new Date();
+          card.querySelector('p').innerText = agora.toLocaleString();
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+      }
+    });
+
+    // Seção de Estatísticas Avançadas
+    const statsDiv = document.createElement('div');
+    statsDiv.innerHTML = `
+      <h3 style="color:#d7b8ff;margin:20px 0 15px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid rgba(124,58,237,0.3);padding-bottom:10px;">📊 Estatísticas Avançadas</h3>
+    `;
+    tabContent.appendChild(statsDiv);
+
+    const statsCards = document.createElement('div');
+    statsCards.classList.add('dashboard-cards');
+    statsCards.style.gridTemplateColumns = 'repeat(auto-fit, minmax(180px, 1fr))';
+    
+    const statsInfo = [
+      { title: '📈 Média Diária', id: 'mediaDiaria', emoji: '📈' },
+      { title: '🔥 Pico de Acessos', id: 'picoAcessos', emoji: '🔥' },
+      { title: '⏱️ Última Atividade', id: 'ultimaAtividade', emoji: '⏱️' },
+      { title: '🎯 Taxa de Engajamento', id: 'taxaEngajamento', emoji: '🎯' }
+    ];
+
+    statsInfo.forEach(stat => {
+      const card = document.createElement('div');
+      card.classList.add('dashboard-card');
+      card.innerHTML = `
+        <h3><span class="emoji-icon">${stat.emoji}</span>${stat.title.split('➜')[0]}</h3>
+        <p id="${stat.id}">Carregando...</p>
+      `;
+      statsCards.appendChild(card);
+    });
+    statsDiv.appendChild(statsCards);
+
+    // Carregar dados de estatísticas
+    db.ref('totalVisits').once('value', snap => {
+      const total = snap.val() || 0;
+      const mediaDiaria = Math.ceil(total / 30); // média aproximada
+      document.getElementById('mediaDiaria').innerText = mediaDiaria + ' visitas';
+    });
+
+    getBooks().then(livros => {
+      const valores = Object.values(livros);
+      const pico = Math.max(...(valores.length ? valores : [0]), 0);
+      document.getElementById('picoAcessos').innerText = pico + ' visitas';
+    }).catch(() => {
+      document.getElementById('picoAcessos').innerText = '0 visitas';
+    });
+
+    db.ref('acessos').orderByChild('lastSeen').limitToLast(1).once('value', snap => {
+      const acessos = snap.val() || {};
+      const valores = Object.values(acessos);
+      if (valores.length > 0) {
+        const ultimoTempo = new Date(valores[0].lastSeen);
+        const agora = new Date();
+        const minutos = Math.floor((agora - ultimoTempo) / 60000);
+        
+        let texto = '';
+        if (minutos < 1) texto = 'Agora';
+        else if (minutos < 60) texto = `${minutos} minuto(s)`;
+        else if (minutos < 1440) texto = `${Math.floor(minutos / 60)} hora(s)`;
+        else texto = `${Math.floor(minutos / 1440)} dia(s)`;
+        
+        document.getElementById('ultimaAtividade').innerText = texto + ' atrás';
+      }
+    });
+
+    db.ref('totalVisits').once('value', totalSnap => {
+      db.ref('acessos').once('value', acessosSnap => {
+        const total = totalSnap.val() || 0;
+        const ips = Object.keys(acessosSnap.val() || {}).length;
+        const taxa = ips > 0 ? (total / ips).toFixed(1) : 0;
+        document.getElementById('taxaEngajamento').innerText = taxa + ' visitas/IP';
+      });
+    });
+
+    // Seção de Dispositivos
+    const deviceDiv = document.createElement('div');
+    deviceDiv.innerHTML = `
+      <h3 style="color:#d7b8ff;margin:20px 0 15px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid rgba(124,58,237,0.3);padding-bottom:10px;">📱 Tipos de Dispositivos</h3>
+    `;
+    tabContent.appendChild(deviceDiv);
+
+    const deviceStats = document.createElement('div');
+    deviceStats.style.cssText = 'display:grid;gap:12px;';
+    deviceDiv.appendChild(deviceStats);
+
+    db.ref('acessos').once('value', snap => {
+      const acessos = snap.val() || {};
+      const devices = {};
+      
+      Object.values(acessos).forEach(acesso => {
+        const tipo = acesso.deviceType || 'Desconhecido';
+        devices[tipo] = (devices[tipo] || 0) + 1;
+      });
+
+      Object.entries(devices).forEach(([tipo, count]) => {
+        const pct = ((count / Object.keys(acessos).length) * 100).toFixed(1);
+        const row = document.createElement('div');
+        row.classList.add('hover-lift');
+        row.style.cssText = 'background:rgba(50,30,90,0.3);padding:12px 16px;border-radius:10px;border:1px solid rgba(124,58,237,0.2);';
+        row.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="color:#d7b8ff;font-weight:700;">🖥️ ${tipo}</span>
+            <span style="color:#00bfff;font-weight:700;">${count}</span>
+          </div>
+          <div style="width:100%;height:6px;background:rgba(124,58,237,0.2);border-radius:3px;overflow:hidden;">
+            <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#7c3aed,#00bfff);"></div>
+          </div>
+          <div style="text-align:right;margin-top:6px;font-size:11px;color:#999;">${pct}%</div>
+        `;
+        // class `hover-lift` cuida da animação de hover de forma mais performática
+        deviceStats.appendChild(row);
+      });
+    });
+  }
+
+  /** ---------------- LIVROS ---------------- **/
+  if (tab === 'livros') {
+    // Container para Top 3
+    const topDiv = document.createElement('div');
+    topDiv.classList.add('top3-info');
+    tabContent.appendChild(topDiv);
+
+    // Tabela de livros
+    const tabela = document.createElement('table');
+    tabela.innerHTML = `
+      <thead>
+        <tr>
+          <th style="width:50%;">📚 Livro</th>
+          <th style="width:25%;">👁️ Visitas</th>
+          <th style="width:25%;">📊 %</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    `;
+    tabContent.appendChild(tabela);
+    const tbody = tabela.querySelector('tbody');
+
+    getBooks().then(livros => {
+      const totalVisitas = Object.values(livros).reduce((a, b) => a + b, 0);
+
+      const top3 = Object.entries(livros).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      topDiv.innerHTML = `
+        <h4 style="margin:0 0 12px 0;color:#00bfff;display:flex;align-items:center;gap:8px;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">🏆 Top 3 Livros</h4>
+        <ol style="margin:0;padding-left:20px;">
+          ${top3.map(([l, c], i) => {
+            const medals = ['🥇', '🥈', '🥉'];
+            return `<li style="color:#ddd;margin-bottom:8px;font-size:12px;"><strong style="color:#d7b8ff;">${medals[i]} ${l}</strong>: ${c} visitas</li>`;
+          }).join('')}
+        </ol>
+      `;
+
+      // Preencher tabela
+      Object.entries(livros)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([livro, count], index) => {
+          const porcentagem = ((count / totalVisitas) * 100).toFixed(1);
+          const tr = document.createElement('tr');
+          tr.style.animation = `slideInContent ${0.3 + index * 0.05}s ease`;
+          
+          const posicao = index + 1;
+          const medalha = posicao === 1 ? '🥇' : posicao === 2 ? '🥈' : posicao === 3 ? '🥉' : `#${posicao}`;
+          
+          tr.innerHTML = `
+            <td style="padding:12px;border-bottom:1px solid rgba(124,58,237,0.2);">
+              <span style="color:#00bfff;font-weight:700;margin-right:8px;">${medalha}</span>
+              <span style="color:#ddd;">${livro}</span>
+            </td>
+            <td style="padding:12px;border-bottom:1px solid rgba(124,58,237,0.2);text-align:center;color:#d7b8ff;font-weight:700;">${count}</td>
+            <td style="padding:12px;border-bottom:1px solid rgba(124,58,237,0.2);">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:80px;height:6px;background:rgba(124,58,237,0.2);border-radius:3px;overflow:hidden;">
+                  <div style="width:${porcentagem}%;height:100%;background:linear-gradient(90deg,#7c3aed,#00bfff);"></div>
+                </div>
+                <span style="color:#00bfff;font-weight:700;min-width:40px;">${porcentagem}%</span>
+              </div>
+            </td>
+          `;
+          // usar classe para hover (melhor performance)
+          tr.classList.add('panel-row');
+          tbody.appendChild(tr);
+        });
+    });
+
+    // Seção de Estatísticas por Livro
+    const statsSection = document.createElement('div');
+    statsSection.innerHTML = `
+      <h3 style="color:#d7b8ff;margin:20px 0 15px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid rgba(124,58,237,0.3);padding-bottom:10px;">📈 Estatísticas Gerais</h3>
+    `;
+    tabContent.appendChild(statsSection);
+
+    getBooks().then(livros => {
+      const total = Object.values(livros).reduce((a, b) => a + b, 0);
+      const quantidade = Object.keys(livros).length;
+      const media = quantidade > 0 ? (total / quantidade).toFixed(1) : 0;
+      const maximo = Math.max(...(Object.values(livros).length ? Object.values(livros) : [0]), 0);
+      const minimo = Math.min(...Object.values(livros), 0);
+
+      const statsGrid = document.createElement('div');
+      statsGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;';
+
+      const statsData = [
+        { label: '📊 Total', value: total, icon: '📊' },
+        { label: '📚 Quantidade', value: quantidade, icon: '📚' },
+        { label: '📈 Média', value: media, icon: '📈' },
+        { label: '🔥 Máximo', value: maximo, icon: '🔥' }
+      ];
+
+      statsData.forEach(stat => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:rgba(50,30,90,0.3);padding:12px;border-radius:10px;border:1px solid rgba(124,58,237,0.2);text-align:center;transition:all 0.3s ease;cursor:default;';
+        card.innerHTML = `
+          <div style="font-size:18px;margin-bottom:6px;">${stat.icon}</div>
+          <div style="font-size:11px;color:#999;text-transform:uppercase;margin-bottom:6px;">${stat.label}</div>
+          <div style="font-size:20px;font-weight:800;background:linear-gradient(135deg,#fff 0%,#d7b8ff 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">${stat.value}</div>
+        `;
+        // animação gerenciada por CSS via classe
+        card.classList.add('hover-lift');
+        statsGrid.appendChild(card);
+      });
+      statsSection.appendChild(statsGrid);
+    });
+  }
+
+  /** ---------------- GRAFICOS ---------------- **/
+  if (tab === 'grafico') {
+    // Gráfico de Barras - Livros
+    const container1 = document.createElement('div');
+    container1.classList.add('grafico-container');
+    container1.innerHTML = `
+      <h3 style="margin:0 0 15px 0;color:#d7b8ff;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;font-size:13px;">📊 Visitas por Livro (Top 10)</h3>
+      <canvas id="graficoCanvas" style="height:350px;"></canvas>
+    `;
+    tabContent.appendChild(container1);
+
+    // Gráfico de Pizza
+    const container2 = document.createElement('div');
+    container2.classList.add('grafico-container');
+    container2.innerHTML = `
+      <h3 style="margin:0 0 15px 0;color:#d7b8ff;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;font-size:13px;">🎯 Distribuição de Acessos</h3>
+      <canvas id="graficoPizza" style="height:320px;"></canvas>
+    `;
+    tabContent.appendChild(container2);
+
+    // Top 3 info
+    const topDiv = document.createElement('div');
+    topDiv.classList.add('top3-info');
+    topDiv.style.marginTop = '16px';
+    tabContent.appendChild(topDiv);
+
+    // Estatísticas
+    const statsDiv = document.createElement('div');
+    statsDiv.innerHTML = `
+      <h3 style="color:#d7b8ff;margin:20px 0 15px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid rgba(124,58,237,0.3);padding-bottom:10px;">📈 Análise Detalhada</h3>
+    `;
+    tabContent.appendChild(statsDiv);
+
+    const statsMetrics = document.createElement('div');
+    statsMetrics.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;';
+    statsDiv.appendChild(statsMetrics);
+
+    getBooks().then(livros => {
+      const nomes = Object.keys(livros);
+      const valores = Object.values(livros);
+      const totalVisitas = valores.reduce((a, b) => a + b, 0);
+
+      // Gráfico de Barras
+      const ctx = document.getElementById('graficoCanvas').getContext('2d');
+      
+      // Top 10 livros
+      const livrosaOrdenados = Object.entries(livros).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const nomesTop = livrosaOrdenados.map(([l]) => l.length > 18 ? l.substring(0, 15) + '...' : l);
+      const valoresTop = livrosaOrdenados.map(([, v]) => v);
+
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: nomesTop,
+          datasets: [{
+            label: 'Visitas',
+            data: valoresTop,
+            backgroundColor: [
+              'rgba(124, 58, 237, 0.8)',
+              'rgba(0, 191, 255, 0.8)',
+              'rgba(100, 200, 255, 0.8)',
+              'rgba(124, 58, 237, 0.6)',
+              'rgba(0, 191, 255, 0.6)',
+              'rgba(100, 200, 255, 0.6)',
+              'rgba(124, 58, 237, 0.5)',
+              'rgba(0, 191, 255, 0.5)',
+              'rgba(100, 200, 255, 0.5)',
+              'rgba(124, 58, 237, 0.4)',
+            ],
+            borderColor: 'rgba(255, 255, 255, 0.2)',
+            borderWidth: 1,
+            borderRadius: 8,
+            hoverBackgroundColor: 'rgba(124, 58, 237, 1)',
+            hoverBorderColor: 'rgba(255, 255, 255, 1)'
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(124, 58, 237, 0.1)',
+                drawBorder: false
+              },
+              ticks: {
+                color: '#b9a3ff'
+              }
+            },
+            y: {
+              grid: {
+                display: false,
+                drawBorder: false
+              },
+              ticks: {
+                color: '#b9a3ff',
+                font: {
+                  size: 11
+                }
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                color: '#d7b8ff',
+                font: { weight: 'bold' },
+                padding: 15,
+                boxHeight: 12,
+                borderRadius: 4
+              }
+            }
+          }
+        }
+      });
+
+      // Gráfico de Pizza
+      const ctxPizza = document.getElementById('graficoPizza').getContext('2d');
+      const cores = ['#7c3aed', '#00bfff', '#64c8ff', '#b9a3ff', '#d7b8ff', '#a88fd9', '#9273d4', '#7d5cc6', '#6b47ba', '#5935a8'];
+      
+      new Chart(ctxPizza, {
+        type: 'doughnut',
+        data: {
+          labels: nomesTop,
+          datasets: [{
+            data: valoresTop,
+            backgroundColor: cores,
+            borderColor: 'rgba(30, 10, 50, 0.8)',
+            borderWidth: 2,
+            hoverBorderColor: '#fff',
+            hoverBorderWidth: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                color: '#d7b8ff',
+                font: { weight: 'bold', size: 11 },
+                padding: 12,
+                boxHeight: 10,
+                borderRadius: 3
+              }
+            }
+          }
+        }
+      });
+
+      // Top 3 detalhes
+      const top3 = livrosaOrdenados.slice(0, 3);
+      topDiv.innerHTML = `
+        <h4 style="margin:0 0 12px 0;color:#00bfff;display:flex;align-items:center;gap:8px;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">🏆 Top 3 Mais Populares</h4>
+        <ol style="margin:0;padding-left:20px;">
+          ${top3.map(([l, c], i) => {
+            const medals = ['🥇', '🥈', '🥉'];
+            const pct = ((c / totalVisitas) * 100).toFixed(1);
+            return `<li style="color:#ddd;margin-bottom:8px;font-size:12px;"><strong style="color:#d7b8ff;">${medals[i]} ${l}</strong>: ${c} visitas (${pct}%)</li>`;
+          }).join('')}
+        </ol>
+      `;
+
+      // Métricas adicionais
+      const metricas = [
+        { label: '📊 Total', value: totalVisitas, icon: '📊' },
+        { label: '📚 Livros', value: nomes.length, icon: '📚' },
+        { label: '📈 Média', value: (totalVisitas / nomes.length).toFixed(1), icon: '📈' },
+        { label: '🔥 Máx', value: Math.max(...valores), icon: '🔥' }
+      ];
+
+      metricas.forEach(m => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:rgba(50,30,90,0.3);padding:12px;border-radius:10px;border:1px solid rgba(124,58,237,0.2);text-align:center;transition:all 0.3s ease;';
+        card.innerHTML = `
+          <div style="font-size:16px;margin-bottom:6px;">${m.icon}</div>
+          <div style="font-size:10px;color:#999;text-transform:uppercase;margin-bottom:6px;">${m.label}</div>
+          <div style="font-size:18px;font-weight:800;color:#00bfff;">${m.value}</div>
+        `;
+        // animação por classe CSS
+        card.classList.add('hover-lift');
+        statsMetrics.appendChild(card);
+      });
+    });
+  }
+
+/** ---------------- ACESSOS ---------------- **/
+if (tab === 'acessos') {
+  tabContent.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;height:450px;margin-bottom:16px;">
+
+      <!-- MAPA -->
+      <div style="background:rgba(50,30,90,0.3);border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.2);border:1px solid rgba(124,58,237,0.2);">
+        <div id="map" style="height:100%;width:100%;"></div>
+      </div>
+
+      <!-- LISTA -->
+      <div style="background:rgba(50,30,90,0.3);border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.2);border:1px solid rgba(124,58,237,0.2);overflow:hidden;display:flex;flex-direction:column;">
+        <div style="padding:14px;border-bottom:2px solid rgba(124,58,237,0.3);background:linear-gradient(135deg,rgba(124,58,237,0.2),rgba(0,191,255,0.1));">
+          <h3 style="color:#d7b8ff;text-align:center;padding:0;margin:0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:12px;">🌐 Últimos Acessos</h3>
+        </div>
+        <div style="flex:1;overflow-y:auto;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:rgba(124,58,237,0.15);">
+                <th style="padding:10px;text-align:center;color:#d7b8ff;font-size:12px;border-bottom:1px solid rgba(124,58,237,0.3);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">🔐 IP/ID</th>
+                <th style="padding:10px;text-align:center;color:#d7b8ff;font-size:12px;border-bottom:1px solid rgba(124,58,237,0.3);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">⏰ Acesso</th>
+                <th style="padding:10px;text-align:center;color:#d7b8ff;font-size:12px;border-bottom:1px solid rgba(124,58,237,0.3);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">📊 Cnt</th>
+              </tr>
+            </thead>
+            <tbody style="color:#ddd;font-size:12px;text-align:center;"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+    `;
+    const tbody = tabContent.querySelector('tbody');
+    let mapaInstance = null;
+    let marcadores = {};
+
+    // Seção de Estatísticas de Acessos
+    const statsSection = document.createElement('div');
+    statsSection.innerHTML = `
+      <h3 style="color:#d7b8ff;margin:0 0 15px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid rgba(124,58,237,0.3);padding-bottom:10px;">📊 Estatísticas de Acessos</h3>
+    `;
+    tabContent.appendChild(statsSection);
+
+    const statsMetrics = document.createElement('div');
+    statsMetrics.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;';
+    statsSection.appendChild(statsMetrics);
+
+    // Seção de Dispositivos
+    const deviceSection = document.createElement('div');
+    deviceSection.innerHTML = `
+      <h3 style="color:#d7b8ff;margin:0 0 15px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid rgba(124,58,237,0.3);padding-bottom:10px;">📱 Distribução de Dispositivos</h3>
+    `;
+    tabContent.appendChild(deviceSection);
+
+    const deviceStats = document.createElement('div');
+    deviceStats.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;';
+    deviceSection.appendChild(deviceStats);
+
+    db.ref('acessos').orderByChild('lastSeen').limitToLast(50).once('value').then(async snap => {
+      const acessos = snap.val() || {};
+      const ordenados = Object.entries(acessos).sort((a, b) => b[1].lastSeen - a[1].lastSeen);
+
+      // Inicializar mapa
+      mapaInstance = L.map('map').setView([0, 0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        className: 'custom-map'
+      }).addTo(mapaInstance);
+
+      // Calcular estatísticas
+      let totalAcessos = 0;
+      let ipAtivo = 0;
+      const devices = {};
+      const paises = {};
+
+      // Debounce para evitar múltiplos fitBounds rápidos (melhora performance)
+      let fitBoundsTimeout = null;
+      function scheduleFitBounds() {
+        if (!mapaInstance) return;
+        if (fitBoundsTimeout) clearTimeout(fitBoundsTimeout);
+        fitBoundsTimeout = setTimeout(() => {
+          const latlngsNow = Object.values(marcadores).map(m => [m.lat, m.lng]);
+          if (latlngsNow.length) {
+            try { mapaInstance.fitBounds(latlngsNow, { padding: [50, 50], maxZoom: 6 }); }
+            catch (e) { console.warn('fitBounds agendado falhou:', e); }
+          }
+        }, 300);
+      }
+
+      // Usar fragmento para reduzir repaints ao popular a tabela
+      const frag = document.createDocumentFragment();
+      const pendingGeos = [];
+
+      for (const [key, val] of ordenados) {
+        totalAcessos += val.count;
+        ipAtivo++;
+
+        const tipo = val.deviceType || 'Desconhecido';
+        devices[tipo] = (devices[tipo] || 0) + 1;
+
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.style.transition = 'all 0.3s ease';
+        tr.style.borderBottom = '1px solid rgba(124,58,237,0.2)';
+
+        const ipDisplay = key.substring(0, 15);
+        const ultimoAcesso = new Date(val.lastSeen);
+        const agora = new Date();
+        const minutos = Math.floor((agora - ultimoAcesso) / 60000);
+        let tempoRelativo = '';
+
+        if (minutos < 1) tempoRelativo = 'Agora';
+        else if (minutos < 60) tempoRelativo = `${minutos}m`;
+        else if (minutos < 1440) tempoRelativo = `${Math.floor(minutos / 60)}h`;
+        else tempoRelativo = `${Math.floor(minutos / 1440)}d`;
+
+        tr.innerHTML = `
+          <td style="padding:10px;border-bottom:1px solid rgba(124,58,237,0.2);">${ipDisplay}</td>
+          <td style="padding:10px;border-bottom:1px solid rgba(124,58,237,0.2);">${tempoRelativo}</td>
+          <td style="padding:10px;border-bottom:1px solid rgba(124,58,237,0.2);"><strong style="color:#00bfff;">${val.count}</strong></td>
+        `;
+
+        // usar classe otimizada para hover
+        tr.classList.add('panel-row');
+        tr.addEventListener('click', () => { abrirDetalhesIP(key, val, mapaInstance); });
+
+        frag.appendChild(tr);
+
+        // Coordenadas (se disponíveis, adiciona marcador; se não, busca em background)
+        const latitude = val.latitude || null;
+        const longitude = val.longitude || null;
+
+        if (latitude && longitude) {
+          const cor = val.count > 5 ? '#ff6b6b' : val.count > 2 ? '#ffd93d' : '#6bcf7f';
+          const marcador = L.circleMarker([latitude, longitude], {
+            radius: 6,
+            fillColor: cor,
+            color: '#ffffff',
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.95
+          }).addTo(mapaInstance).bindPopup(`
+              <div style="color:#333;font-weight:bold;text-align:center;">
+                <div>${val.count} acessos</div>
+                <div style="font-size:11px;margin-top:4px;color:#666;">${(val.deviceName || 'N/A')}</div>
+              </div>
+            `);
+          marcadores[key] = { marker: marcador, lat: latitude, lng: longitude };
+        } else {
+          // buscar geolocalização em background sem bloquear o loop
+          pendingGeos.push((async (ipKey, ipVal) => {
+            try {
+              const response = await fetch(`https://ipapi.co/${ipKey.replace('ip_', '')}/json/`);
+              const data = await response.json();
+              const lat = data.latitude || null;
+              const lng = data.longitude || null;
+              if (lat && lng) {
+                await db.ref('acessos/' + ipKey).update({ latitude: lat, longitude: lng });
+                const cor = ipVal.count > 5 ? '#ff6b6b' : ipVal.count > 2 ? '#ffd93d' : '#6bcf7f';
+                const marcador = L.circleMarker([lat, lng], {
+                  radius: 6,
+                  fillColor: cor,
+                  color: '#ffffff',
+                  weight: 1,
+                  opacity: 1,
+                  fillOpacity: 0.95
+                }).addTo(mapaInstance).bindPopup(`
+                    <div style="color:#333;font-weight:bold;text-align:center;">
+                      <div>${ipVal.count} acessos</div>
+                      <div style="font-size:11px;margin-top:4px;color:#666;">${(ipVal.deviceName || 'N/A')}</div>
+                    </div>
+                  `);
+                marcadores[ipKey] = { marker: marcador, lat: lat, lng: lng };
+                // atualizar bounds incrementalmente (agendado)
+                scheduleFitBounds();
+              }
+            } catch (e) {
+              console.error('Erro ao buscar localização (background):', e);
+            }
+          })(key, val));
+        }
+      }
+
+      // Anexa todas as linhas de uma vez (melhora performance)
+      tbody.appendChild(frag);
+
+      // Não aguardar todos os geocoding de background — eles atualizam o mapa quando terminam
+      if (pendingGeos.length) Promise.allSettled(pendingGeos).then(() => {
+        // opcional: já tratamos fitBounds incrementalmente ao adicionar marcadores no background
+      });
+
+      // Ajustar a visão do mapa para incluir todos os marcadores (se existirem) - agendado
+      scheduleFitBounds();
+
+      // Renderizar Estatísticas
+      const totalAtual = ordenados.reduce((acc, [_, val]) => acc + val.count, 0);
+      const metricas = [
+        { label: '🌐 IPs', value: ipAtivo, icon: '🌐' },
+        { label: '👁️ Total', value: totalAtual, icon: '👁️' },
+        { label: '📊 Média', value: (totalAtual / ipAtivo).toFixed(1), icon: '📊' },
+        { label: '🔥 Máx', value: Math.max(...ordenados.map(([_, v]) => v.count)), icon: '🔥' }
+      ];
+
+      metricas.forEach(m => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:rgba(50,30,90,0.3);padding:12px;border-radius:10px;border:1px solid rgba(124,58,237,0.2);text-align:center;transition:all 0.3s ease;';
+        card.innerHTML = `
+          <div style="font-size:16px;margin-bottom:6px;">${m.icon}</div>
+          <div style="font-size:10px;color:#999;text-transform:uppercase;margin-bottom:6px;">${m.label}</div>
+          <div style="font-size:20px;font-weight:800;color:#00bfff;">${m.value}</div>
+        `;
+        card.classList.add('hover-lift');
+        statsMetrics.appendChild(card);
+      });
+
+      // Renderizar Dispositivos
+      Object.entries(devices).forEach(([tipo, count]) => {
+        const pct = ((count / ipAtivo) * 100).toFixed(1);
+        const row = document.createElement('div');
+        row.style.cssText = 'background:rgba(50,30,90,0.3);padding:14px;border-radius:10px;border:1px solid rgba(124,58,237,0.2);transition:all 0.3s ease;';
+        row.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="color:#d7b8ff;font-weight:700;font-size:12px;text-transform:uppercase;">${tipo}</span>
+            <span style="color:#00bfff;font-weight:700;background:rgba(0,191,255,0.2);padding:4px 8px;border-radius:4px;font-size:11px;">${count} IPs</span>
+          </div>
+          <div style="width:100%;height:8px;background:rgba(124,58,237,0.2);border-radius:4px;overflow:hidden;">
+            <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#7c3aed,#00bfff);"></div>
+          </div>
+          <div style="text-align:right;margin-top:8px;font-size:11px;color:#999;font-weight:600;">${pct}% do total</div>
+        `;
+        // animação por classe (hover-lift)
+        row.classList.add('hover-lift');
+        deviceStats.appendChild(row);
+      });
+    });
+  }
+}
+
+ 
+
+// ===== ELEMENTOS =====
+const searchIcon = document.getElementById("search-icon");
+const searchBar = document.getElementById("search-bar");
+const searchInput = document.getElementById("search-input");
+const searchResults = document.getElementById("search-results");
+const carrossel = document.getElementById("carousel-container");
+const categoryBtn = document.getElementById("category-btn");
+const categoryMenu = document.getElementById("category-menu");
+const header = document.querySelector("header"); // pegue o header uma vez
+
+
+
+
+// ===== PESQUISA  =====
+
+
+let mostrandoPesquisa = false;
+
+searchIcon.addEventListener("click", () => { 
+
+
+  mostrandoPesquisa = !mostrandoPesquisa;
+
+  if(mostrandoPesquisa){
+    searchBar.classList.add("active");
+    mostrarGrid(Array.from(livrosLista));
+    searchInput.focus();
+
+
+  } else {
+    searchBar.classList.remove("active");
+    restaurarLayout();
+    searchInput.value = "";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+});
+ 
+// ========== FUNÇÕES PARA PAINEL DE DETALHES DO IP ==========
+
+function abrirDetalhesIP(ipHash, dados, mapa) {
+  const painel = document.getElementById('painelDetalhesIP');
+  const header = document.getElementById('ipHeader');
+  const container = document.getElementById('accordionContainer');
+
+  // Extrai o IP real do hash
+  const ipReal = dados.ip || ipHash;
+  header.textContent = `IP: ${ipReal}`;
+
+  // Limpa o container
+  container.innerHTML = '';
+
+  // Calcula tempo de sessão
+  const tempoSessao = Math.round((dados.lastSeen - dados.firstSeen) / 1000 / 60); // em minutos
+  const horas = Math.floor(tempoSessao / 60);
+  const minutos = tempoSessao % 60;
+  const tempoFormatado = horas > 0 ? `${horas}h ${minutos}m` : `${minutos}m`;
+
+  // Define os tópicos do acordeão
+  const topicos = [
+    {
+      titulo: '📊 Informações Gerais',
+      conteudo: `
+        <p><span class="label">IP:</span> <span class="value">${ipReal}</span></p>
+        <p><span class="label">Total de Acessos:</span> <span class="value">${dados.count}</span></p>
+        <p><span class="label">Primeiro Acesso:</span> <span class="value">${new Date(dados.firstSeen).toLocaleString()}</span></p>
+        <p><span class="label">Último Acesso:</span> <span class="value">${new Date(dados.lastSeen).toLocaleString()}</span></p>
+        <div class="session-time">
+          <strong>⏱️ Tempo na Página:</strong>
+          ${tempoFormatado}
+        </div>
+      `
+    },
+    {
+      titulo: '📱 Dispositivo',
+      conteudo: `
+        <p><span class="label">Tipo:</span> <span class="value">${dados.deviceType || 'Desconhecido'}</span></p>
+        <p><span class="label">Nome:</span> <span class="value">${dados.deviceName || 'N/A'}</span></p>
+        <p><span class="label">User Agent:</span></p>
+        <p style="word-break:break-all;font-size:12px;color:#999;">${dados.ua || 'N/A'}</p>
+      `
+    },
+    {
+      titulo: '📚 Livros Acessados',
+      conteudo: `
+        <p style="font-size:12px;color:#ddd;">Livros acessados por este IP:</p>
+        <div id="booksAccessedList" style="font-size:12px;margin-top:10px;"></div>
+      `
+    },
+    {
+      titulo: '🗺️ Localização',
+      conteudo: `
+        <p><span class="label">Coordenadas:</span></p>
+        <p style="font-size:12px;color:#ddd;">Lat: ${dados.latitude || 'N/A'}<br>Lon: ${dados.longitude || 'N/A'}</p>
+        
+        <div class="location-permission">
+          <button class="allow-btn" onclick="solicitarLocalizacaoExata('${ipReal}')">✓ Permitir</button>
+          <button class="deny-btn" onclick="negarLocalizacao()">✗ Negar</button>
+        </div>
+
+        <div id="enderecoCompleto" class="location-info">
+          <strong>📍 Endereço Aproximado:</strong>
+          <div id="enderecoTexto">Carregando...</div>
+        </div>
+      `
+    }
+  ];
+
+  // Cria os itens do acordeão
+  topicos.forEach((topico, index) => {
+    const item = document.createElement('div');
+    item.className = 'accordion-item';
+
+    const headerItem = document.createElement('div');
+    headerItem.className = 'accordion-header';
+    headerItem.innerHTML = `
+      <span>${topico.titulo}</span>
+      <span class="accordion-icon">▼</span>
+    `;
+
+    const content = document.createElement('div');
+    content.className = 'accordion-content';
+    content.innerHTML = topico.conteudo;
+
+    // Toggle acordeão
+    headerItem.addEventListener('click', () => {
+      const isActive = headerItem.classList.contains('active');
+      
+      // Fecha todos
+      document.querySelectorAll('#painelDetalhesIP .accordion-header').forEach(h => {
+        h.classList.remove('active');
+        h.nextElementSibling.classList.remove('active');
+      });
+      document.querySelectorAll('#painelDetalhesIP .accordion-icon').forEach(i => {
+        i.classList.remove('active');
+      });
+
+      // Abre o clicado
+      if (!isActive) {
+        headerItem.classList.add('active');
+        content.classList.add('active');
+        headerItem.querySelector('.accordion-icon').classList.add('active');
+      }
+    });
+
+    // Primeiro item aberto por padrão
+    if (index === 0) {
+      headerItem.classList.add('active');
+      content.classList.add('active');
+      headerItem.querySelector('.accordion-icon').classList.add('active');
+    }
+
+    item.appendChild(headerItem);
+    item.appendChild(content);
+    container.appendChild(item);
+  });
+
+  // Busca endereço completo
+  if (dados.latitude && dados.longitude) {
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${dados.latitude}&lon=${dados.longitude}`)
+      .then(res => res.json())
+      .then(data => {
+        const addr = data.address || {};
+        const endereco = `
+          <strong>🌍 País:</strong> ${addr.country || 'N/A'}<br>
+          <strong>🏛️ Estado:</strong> ${addr.state || 'N/A'}<br>
+          <strong>🏙️ Cidade:</strong> ${addr.city || addr.town || 'N/A'}<br>
+          <strong>📍 Bairro:</strong> ${addr.suburb || addr.neighbourhood || 'N/A'}<br>
+          <strong>🛣️ Rua:</strong> ${addr.road || 'N/A'}<br>
+          <strong>🏠 Número:</strong> ${addr.house_number || 'N/A'}<br>
+          <strong>📮 CEP:</strong> ${addr.postcode || 'N/A'}
+        `;
+        document.getElementById('enderecoTexto').innerHTML = endereco;
+      })
+      .catch(err => {
+        document.getElementById('enderecoTexto').innerHTML = '<span style="color:#ff6b6b;">Erro ao buscar endereço</span>';
+      });
+  }
+
+  // Busca livros acessados por este IP (simulado)
+  const booksAccessedList = document.getElementById('booksAccessedList');
+  if (booksAccessedList) {
+    booksAccessedList.innerHTML = `
+      <div style="color:#ddd;font-size:12px;">
+        <p>✓ Total: ${dados.count} acesso(s)</p>
+        <p style="color:#00bfff;">Histórico sincronizado com servidor</p>
+      </div>
+    `;
+  }
+
+  // Abre o painel
+  painel.classList.add('active');
+
+  // Zoom automático no mapa se tiver coordenadas
+  if (dados.latitude && dados.longitude && mapa) {
+    // Faz o zoom suavemente para o ponto
+    mapa.flyTo([dados.latitude, dados.longitude], 13, {
+      duration: 2, // 2 segundos para a animação
+      easeLinearity: 0.25
+    });
+  }
+}
+
+function fecharPainelDetalhes() {
+  const painel = document.getElementById('painelDetalhesIP');
+  painel.classList.remove('active');
+}
+
+function solicitarLocalizacaoExata(ip) {
+  const enderecoDiv = document.getElementById('enderecoCompleto');
+  enderecoDiv.innerHTML = `
+    <strong>📍 Localização Exata (Solicitada):</strong>
+    <div style="margin-top:8px;color:#ddd;font-size:12px;">
+      ✓ Permissão concedida para localização de alta precisão<br>
+      <span style="color:#00bfff;">Aguardando dados do cliente...</span>
+    </div>
+  `;
+}
+
+function negarLocalizacao() {
+  const enderecoDiv = document.getElementById('enderecoCompleto');
+  enderecoDiv.innerHTML = `
+    <strong>📍 Localização Exata:</strong>
+    <div style="margin-top:8px;color:#ff6b6b;font-size:12px;">
+      ✗ Permissão negada pelo usuário<br>
+      Usando apenas localização aproximada por IP
+    </div>
+  `;
+}
+
+// Fecha o painel quando clicar fora dele (opcional)
+document.addEventListener('click', (e) => {
+  const painel = document.getElementById('painelDetalhesIP');
+  if (painel.classList.contains('active') && 
+      !painel.contains(e.target) && 
+      e.target.closest('tr') === null) {
+    // Você pode descomentar a linha abaixo se quiser fechar ao clicar fora
+    // fecharPainelDetalhes();
+  }
+});
+
+
+
+
+// -----------------------------
+// MAREVO - loader / JSON -> DOM
+// Colar ESTE BLOCO no FINAL do <script> do index.html
+// -----------------------------
+(function () {
+  if (window.__MAREVO_INIT_DONE) return;
+  window.__MAREVO_INIT_DONE = true;
+
+  // Elementos já presentes no index.html
+  const libraryList = document.getElementById("library-list");
+  const templateLivro = document.querySelector(".livro-template");
+  const categoryList = document.getElementById("category-list");
+  const carouselTrack = document.getElementById("carousel-track");
+  const searchInput = document.getElementById("search-input");
+  const searchResults = document.getElementById("search-results");
+  const categoryBtn = document.getElementById("category-btn");
+  const categoryMenu = document.getElementById("category-menu");
+  const carrosselEl = document.getElementById("carousel-container");
+  const headerEl = document.querySelector("header");
+
+  // global flags that your index.html already uses:
+  // - hideLoaderIfReady() exists earlier; imagesReady/firebaseReady/timeoutReached exist too.
+  // We'll update imagesReady when JSON images are loaded.
+  if (typeof window.hideLoaderIfReady !== 'function') {
+    // fallback: simple hide
+    window.hideLoaderIfReady = () => {
+      const l = document.getElementById('loaderContainer');
+      if (l) l.classList.add('hidden');
+    };
+  }
+
+  // Guard rails
+  if (!libraryList || !templateLivro || !categoryList || !carouselTrack) {
+    console.error("MAREVO INIT: elemento(s) base não encontrado(s). Verifique IDs e template.");
+    return;
+  }
+
+  // Estado
+  let conteudoJSON = null;
+  const categoriasUnicas = new Set();
+
+  // UTIL: capitalizar para rótulo
+  function readLabel(catId) {
+    if (!catId) return "";
+    // trocar hífens por espaços e capit.
+    return catId.replace(/-/g, " ").replace(/\b\w/g, ch => ch.toUpperCase());
+  }
+
+  // CARREGAR JSON
+  async function carregarConteudo() {
+    try {
+      const res = await fetch("conteudo.json", {cache: "no-store"});
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+
+      // compat: se JSON tem wrapper {livros: [...], categorias: [...]}
+      if (Array.isArray(data.livros)) {
+        conteudoJSON = data.livros.map(l => normalizeLivro(l));
+      } else if (Array.isArray(data)) {
+        conteudoJSON = data.map(l => normalizeLivro(l));
+      } else {
+        // caso seu JSON esteja em outro formato — tenta detectar
+        conteudoJSON = (data.items || []).map(l => normalizeLivro(l));
+      }
+
+      // gerar categorias a partir dos livros (se há seção categorias no JSON, também usa)
+      if (Array.isArray(data.categorias)) {
+        data.categorias.forEach(c => {
+          if (c.id) categoriasUnicas.add(c.id);
+        });
+      }
+      conteudoJSON.forEach(l => (l.categorias || []).forEach(c => categoriasUnicas.add(c)));
+
+      gerarCategoriasDOM();
+      renderizarLivros(conteudoJSON);
+      gerarCarrossel(conteudoJSON);
+
+      // quando imagens do conteúdo carregarem, marcar imagesReady e esconder loader
+      await waitImagesLoaded();
+      window.imagesReady = true;
+      if (typeof window.hideLoaderIfReady === 'function') window.hideLoaderIfReady();
+
+    } catch (err) {
+      console.error("Erro ao carregar conteudo.json:", err);
+    }
+  }
+
+  // Normaliza chaves do JSON para o formato esperado
+  function normalizeLivro(raw) {
+    // possíveis campos no seu JSON: id / titulo / descricao / imagem / arquivo / link
+    return {
+      id: raw.id || raw.key || (raw.titulo && raw.titulo.toLowerCase().replace(/\s+/g, "-")) || "",
+      titulo: raw.titulo || raw.title || "Sem título",
+      descricao: raw.descricao || raw.description || "",
+      imagem: raw.imagem || raw.imagemUrl || raw.image || (raw.img && raw.img.src) || "livros/img/placeholder.png",
+      link: raw.arquivo || raw.link || raw.url || "#",
+      categorias: Array.isArray(raw.categorias) ? raw.categorias : (raw.categories || [])
+    };
+  }
+
+  // GERA CATEGORIAS -> DOM
+  function gerarCategoriasDOM() {
+    // limpar exceto "todos"
+    categoryList.innerHTML = `<li data-category="todos">Todos</li>`;
+    Array.from(categoriasUnicas).sort().forEach(cat => {
+      const li = document.createElement("li");
+      li.dataset.category = cat;
+      li.textContent = readLabel(cat);
+      categoryList.appendChild(li);
+    });
+  }
+
+  // RENDERIZA LISTA DE LIVROS (usando template)
+  function renderizarLivros(lista) {
+    // remover existentes (exceto template)
+    libraryList.querySelectorAll(".livro:not(.livro-template)").forEach(n => n.remove());
+
+    lista.forEach(livro => {
+      const clone = templateLivro.cloneNode(true);
+      clone.classList.remove("livro-template");
+      clone.style.display = "flex";
+
+      clone.dataset.book = livro.id;
+      const imgEl = clone.querySelector(".livro-img");
+      if (imgEl) {
+        imgEl.src = livro.imagem;
+        imgEl.alt = livro.titulo;
+      }
+      const tituloEl = clone.querySelector(".livro-titulo");
+      if (tituloEl) tituloEl.textContent = livro.titulo;
+      const descEl = clone.querySelector(".livro-descricao");
+      if (descEl) descEl.textContent = livro.descricao;
+      const linkEl = clone.querySelector(".livro-link");
+      if (linkEl) linkEl.href = livro.link;
+
+      libraryList.appendChild(clone);
+    });
+
+    // Atualizar referencia global de itens (alguns trechos do seu JS usavam document.querySelectorAll('.livro') — OK)
+    aplicarSistemaViewsFirebase(); // conecta ao firebase e ativa incremento
+  }
+
+  // APLICAR SISTEMA DE VIEWS (usa db já definido)
+  function aplicarSistemaViewsFirebase() {
+    // Segurança: se db não definido, retorna
+    if (typeof db === "undefined" || !db || !db.ref) {
+      console.warn("Firebase 'db' não encontrado. Views não serão atualizadas.");
+      return;
+    }
+
+    const livrosDOM = document.querySelectorAll('.livro:not(.livro-template)');
+    livrosDOM.forEach(livroEl => {
+      const key = livroEl.dataset.book;
+      if (!key) return;
+
+      const ref = db.ref('books/' + key);
+      const span = livroEl.querySelector('.livro-views-numero');
+      const botao = livroEl.querySelector('.livro-link');
+
+     // Evita adicionar vários listeners no mesmo livro
+if (!botao.dataset.__viewsListener) {
+
+    // Garantir que o nodo existe
+    ref.once("value").then(snap => {
+        if (snap.val() === null) ref.set(0);
+    });
+
+    // Listener único para atualizar o número de views na UI
+    ref.on("value", snap => {
+        if (span) span.textContent = snap.val() || 0;
+    });
+
+    // Marca que este livro já recebeu listeners
+    botao.dataset.__viewsListener = "1";
+}
+
+
+      if (botao) {
+        botao.addEventListener("click", e => {
+          // incrementa com transaction e redireciona
+          e.preventDefault();
+          const href = botao.href || livroEl.querySelector('.livro-link')?.getAttribute('href') || "#";
+          ref.transaction(v => (v || 0) + 1);
+          // animação visual (se quiser adicionar classe flash)
+          livroEl.classList.add('flash');
+          setTimeout(() => livroEl.classList.remove('flash'), 1800);
+          setTimeout(() => { window.open(href, "_blank"); }, 150);
+        });
+      }
+    });
+  }
+
+		  // GERAR CARROSSEL
+		function gerarCarrossel(lista) {
+		  carouselTrack.innerHTML = "";
+		
+		  lista.forEach(livro => {
+		    const item = document.createElement("div");
+		    item.className = "carousel-item";
+		    item.dataset.book = livro.id;
+		
+		    item.innerHTML = `
+		      <a href="${livro.link}" target="_blank" class="carousel-link" data-book="${livro.id}">
+		        <img src="${livro.imagem}" alt="${livro.titulo}">
+		      </a>
+		    `;
+		
+		    carouselTrack.appendChild(item);
+		  });
+		
+		  // 🔥 ADICIONAR EVENTO DE CONTAGEM AQUI — DEPOIS QUE OS ITENS EXISTEM
+		  const links = carouselTrack.querySelectorAll(".carousel-link");
+		
+		  links.forEach(a => {
+		    const book = a.dataset.book;
+		    if (!book) return;
+		
+		    const ref = db.ref("books/" + book);
+		
+		    a.addEventListener("click", () => {
+		      ref.transaction(v => (v || 0) + 1);
+		    });
+		  });
+		
+		  iniciarCarrosselSafe();
+		}
+  // INICIAR CARROSSEL (safe: remove interval anterior se existir)
+  function iniciarCarrosselSafe() {
+    // limpa qualquer interval antigo
+    if (window.__MAREVO_CAROUSEL_INTERVAL) {
+      clearInterval(window.__MAREVO_CAROUSEL_INTERVAL);
+      window.__MAREVO_CAROUSEL_INTERVAL = null;
+    }
+
+    const items = carouselTrack.querySelectorAll(".carousel-item");
+    if (!items.length) {
+      if (carrosselEl) carrosselEl.style.display = "none";
+      return;
+    } else {
+      if (carrosselEl) carrosselEl.style.display = "block";
+    }
+
+    let currentIndex = 0;
+    function update() {
+      const all = carouselTrack.querySelectorAll(".carousel-item");
+      if (!all.length) return;
+      all.forEach(i => i.classList.remove("active"));
+      const cur = all[currentIndex];
+      if (!cur) return;
+      cur.classList.add("active");
+      const offset = (cur.offsetLeft + cur.offsetWidth / 2) - carouselTrack.offsetWidth / 2;
+      carouselTrack.style.transform = `translateX(${-offset}px)`;
+    }
+
+    const prev = document.getElementById("prev");
+    const next = document.getElementById("next");
+    if (prev) {
+      prev.onclick = () => {
+        currentIndex = (currentIndex - 1 + items.length) % items.length;
+        update();
+      };
+    }
+    if (next) {
+      next.onclick = () => {
+        currentIndex = (currentIndex + 1) % items.length;
+        update();
+      };
+    }
+
+    // touch support (once)
+    let startX = null;
+    carouselTrack.ontouchstart = e => { startX = e.touches[0].clientX; };
+    carouselTrack.ontouchend = e => {
+      if (startX === null) return;
+      const diff = e.changedTouches[0].clientX - startX;
+      if (diff > 50) currentIndex = (currentIndex - 1 + items.length) % items.length;
+      else if (diff < -50) currentIndex = (currentIndex + 1) % items.length;
+      startX = null;
+      update();
+    };
+
+    // autoplay
+    window.__MAREVO_CAROUSEL_INTERVAL = setInterval(() => {
+      currentIndex = (currentIndex + 1) % items.length;
+      update();
+    }, 4000);
+
+    // primeira atualização
+    setTimeout(update, 120);
+  }
+
+ // PESQUISA (usa conteudoJSON)
+function attachSearch() {
+  if (!searchInput) return;
+
+  searchInput.addEventListener("input", () => {
+    const termo = (searchInput.value || "").toLowerCase().trim();
+
+    if (!termo) {
+      searchResults.style.display = "none";
+      renderizarLivros(conteudoJSON);
+      if (headerEl) headerEl.style.display = "block";
+      return;
+    }
+
+    const filtrados = (conteudoJSON || []).filter(l => {
+      const id = (l.id || "").toLowerCase();
+      const titulo = (l.titulo || "").toLowerCase();
+      const descricao = (l.descricao || "").toLowerCase();
+      const autor = (l.autor || "").toLowerCase();
+
+      return (
+        id.includes(termo) ||
+        titulo.includes(termo) ||
+        descricao.includes(termo) ||
+        autor.includes(termo)
+      );
+    });
+
+    // mostrar grid simples de cards no searchResults
+    searchResults.innerHTML = "";
+    searchResults.style.display = "grid";
+    if (carrosselEl) carrosselEl.style.display = "none";
+
+    if (filtrados.length === 0) {
+      searchResults.innerHTML = `
+        <p style="color:#fff; padding: 170px 0; text-align:center; font-size:1.2rem; grid-column: 1/-1;">
+          📖 Livro não encontrado!
+        </p>`;
+    }
+
+    filtrados.forEach(livro => {
+      const card = document.createElement("div");
+      card.className = "card-livro";
+      card.innerHTML = `
+        <img src="${livro.imagem}" alt="${livro.titulo}">
+        <h4>${livro.titulo}</h4>
+      `;
+      card.onclick = () => window.location.href = livro.link;
+      searchResults.appendChild(card);
+    });
+  });
+}
+
+
+  // CLICKS EM CATEGORIAS (delegado em #category-list)
+  function attachCategoryClick() {
+    categoryList.addEventListener("click", (e) => {
+      const li = e.target.closest("li");
+      if (!li) return;
+      const categoria = li.dataset.category;
+      // fechar menu
+      categoryMenu.classList.remove("active");
+      if (categoryBtn) categoryBtn.textContent = "☰ Categoria";
+
+      if (!categoria || categoria === "todos") {
+        renderizarLivros(conteudoJSON);
+        gerarCarrossel(conteudoJSON);
+        return;
+      }
+      const filtrados = (conteudoJSON || []).filter(l => (l.categorias || []).includes(categoria));
+      renderizarLivros(filtrados);
+      gerarCarrossel(filtrados);
+    });
+
+    // toggle do botão categoria (preserva comportamento atual)
+    if (categoryBtn && !categoryBtn.dataset.__toggleBound) {
+      categoryBtn.addEventListener("click", () => {
+        categoryMenu.classList.toggle("active");
+        categoryBtn.textContent = categoryMenu.classList.contains("active") ? "<" : "☰ Categoria";
+      });
+      categoryBtn.dataset.__toggleBound = "1";
+    }
+  }
+
+  // Espera todas as imagens da library + carrossel carregarem
+  function waitImagesLoaded() {
+    const imgs = Array.from(document.querySelectorAll("#library-list img, #carousel-track img"));
+    if (!imgs.length) return Promise.resolve();
+    const promises = imgs.map(img => {
+      return new Promise(res => {
+        if (img.complete && img.naturalWidth !== 0) return res();
+        img.addEventListener('load', res);
+        img.addEventListener('error', res); // ignora erro mas resolve
+      });
+    });
+    // timeout de segurança 6s
+    return Promise.race([
+      Promise.all(promises),
+      new Promise(r => setTimeout(r, 6000))
+    ]);
+  }
+
+  // INICIALIZAÇÃO
+  attachSearch();
+  attachCategoryClick();
+  carregarConteudo();
+
+  // Expõe algumas funções para depuração no console
+  window.__MAREVO = {
+    recarregar: carregarConteudo,
+    renderizarLivros,
+    gerarCarrossel
+  };
+
+})();
