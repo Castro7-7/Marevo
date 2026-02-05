@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /privado/
+
+# Indique o caminho do seu sitemap aqui
+Sitemap: https://castro7-7.github.io/Marevo/sitemap.xml
