@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Afiliado Pro - Do Zero à Escala</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #38bdf8; /* Azul claro neon */
+            --secondary: #0f172a; /* Azul marinho muito escuro */
+            --dark-bg: #020617; /* Fundo quase preto para leitura */
+            --card-bg: #1e293b; /* Fundo dos cards */
+            --accent: #22c55e; /* Verde para botões e sucesso */
+            --text-main: #f8fafc; /* Texto claro */
+            --text-dim: #94a3b8; /* Texto secundário */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Barra de Urgência */
+        .top-bar {
+            background: linear-gradient(90deg, #0f172a, #1e293b);
+            color: var(--primary);
+            text-align: center;
+            padding: 10px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border-bottom: 1px solid var(--primary);
+        }
+
+        /* Header / Capa */
+        header {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--dark-bg);
+        }
+
+        .hero-img {
+            width: 100%;
+            display: block;
+            border-bottom: 4px solid var(--primary);
+            filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.3));
+        }
+
+        /* Conteúdo */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .headline {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .headline h1 {
+            font-size: 1.9rem;
+            color: var(--text-main);
+            line-height: 1.2;
+            margin-bottom: 15px;
+        }
+
+        .headline span {
+            color: var(--primary);
+            text-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+        }
+
+        /* Cards Estilo Dark */
+        .benefit-card {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+
+        .benefit-card h3 {
+            margin-bottom: 12px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.3rem;
+        }
+
+        .benefit-card p {
+            color: var(--text-dim);
+            font-size: 1rem;
+        }
+
+        /* Seção de Módulos (Visual Premium) */
+        .modules-section {
+            background: linear-gradient(145deg, #1e293b, #0f172a);
+            border-radius: 20px;
+            padding: 30px;
+            margin: 40px 0;
+            border: 1px solid var(--primary);
+        }
+
+        .module-item {
+            border-bottom: 1px solid rgba(56, 189, 248, 0.1);
+            padding: 18px 0;
+        }
+
+        .module-item:last-child { border: none; }
+
+        .module-number {
+            color: var(--accent);
+            font-weight: bold;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        /* Prova Social */
+        .proof-box {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--accent);
+            text-align: center;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--accent);
+            margin: 25px 0;
+            font-weight: 600;
+        }
+
+        /* Botão Fixo de Alta Conversão */
+        .sticky-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            background: rgba(2, 6, 23, 0.85);
+            backdrop-filter: blur(15px);
+            border-top: 1px solid rgba(255,255,255,0.1);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+        }
+
+        .cta-btn {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            text-decoration: none;
+            font-weight: 800;
+            font-size: 1.2rem;
+            padding: 18px 35px;
+            border-radius: 50px;
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(34, 197, 94, 0.4);
+            transition: 0.3s all;
+            animation: pulse-green 2s infinite;
+        }
+
+        @keyframes pulse-green {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { transform: scale(1.02); box-shadow: 0 0 0 15px rgba(34, 197, 94, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        /* Rodapé */
+        footer {
+            text-align: center;
+            padding: 40px 20px 140px 20px;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        /* Ajustes Mobile */
+        @media (max-width: 480px) {
+            .headline h1 { font-size: 1.6rem; }
+            .benefit-card { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        🚀 MÉTODO VALIDADO 2026: VAGAS LIMITADAS DISPONÍVEIS
+    </div>
+
+    <header>
+        <!-- Lembre-se de colocar a imagem que você gerou com o nome abaixo -->
+        <img src="afiliado-pro-escala.png" alt="Afiliado Pro - Do Zero à Escala" class="hero-img">
+    </header>
+
+    <div class="container">
+        
+        <div class="headline">
+            <h1>Descubra o Caminho para sua <span>Liberdade Financeira</span> como Afiliado Pro!</h1>
+            <p style="color: var(--text-dim);">Aprenda as estratégias que realmente funcionam em 2026 para Shopee e Amazon.</p>
+        </div>
+
+        <div class="proof-box">
+            <i class="fas fa-check-double"></i> 1.247 alunos transformaram seus telemóveis em máquinas de vendas!
+        </div>
+
+        <div class="benefit-card">
+            <h3><i class="fas fa-bolt"></i> Resultados Rápidos</h3>
+            <p>O foco do Módulo 2 é o "Ponto Doce" da venda por impulso: produtos que o cliente compra sem pensar duas vezes.</p>
+        </div>
+
+        <div class="benefit-card">
+            <h3><i class="fas fa-video-slash"></i> 100% Sem Aparecer</h3>
+            <p>Utilize a nossa técnica de edição dinâmica para criar vídeos virais que vendem enquanto você dorme.</p>
+        </div>
+
+        <div class="modules-section">
+            <h2 style="text-align: center; margin-bottom: 25px; color: var(--text-main);">O Que Você Recebe Hoje:</h2>
+            
+            <div class="module-item">
+                <span class="module-number">PASSO 01</span>
+                <p><strong>Configuração de Elite:</strong> Cadastro aprovado e conta blindada nas plataformas.</p>
+            </div>
+
+            <div class="module-item">
+                <span class="module-number">PASSO 02</span>
+                <p><strong>O Garimpo Secreto:</strong> Como encontrar os produtos de alta demanda que ninguém está vendo.</p>
+            </div>
+
+            <div class="module-item">
+                <span class="module-number">PASSO 03</span>
+                <p><strong>Edição Magnética:</strong> Use o CapCut para criar vídeos impossíveis de ignorar.</p>
+            </div>
+
+            <div class="module-item">
+                <span class="module-number">PASSO 04</span>
+                <p><strong>Escala Infinita:</strong> Domine o Funil de WhatsApp e multiplique suas conversões.</p>
+            </div>
+        </div>
+
+        <div class="benefit-card" style="border: 1px solid rgba(245, 158, 11, 0.3);">
+            <h3 style="color: #f59e0b;"><i class="fas fa-shield-alt"></i> Garantia Blindada</h3>
+            <p>Teste o guia por 7 dias. Se não sentir que este é o caminho mais rápido para sua primeira comissão, eu devolvo 100% do seu dinheiro.</p>
+        </div>
+
+        <footer>
+            <p>Afiliado Pro &copy; 2026 - Todos os direitos reservados.</p>
+            <p style="margin-top: 10px;">Este site não tem vínculo com o Facebook, Google, Shopee ou Amazon.</p>
+        </footer>
+
+    </div>
+
+    <!-- CTA Fixo -->
+    <div class="sticky-footer">
+        <a href="https://pay.cakto.com.br/ot8z5f2_869308" class="cta-btn">
+            QUERO MINHA PRIMEIRA COMISSÃO <i class="fas fa-chevron-right"></i>
+        </a>
+    </div>
+
+</body>
+</html>
