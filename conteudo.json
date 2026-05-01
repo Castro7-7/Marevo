@@ -17,6 +17,17 @@
 
   "livros": [
     {
+      "id": "afiliado-pro-escala",
+      "titulo": "Afiliado Pro: Do Zero à Escala – O Guia Definitivo 2026",
+      "autor": "MAREVO Digital",
+      "descricao": "Aprenda a vender na Shopee e Amazon sem precisar aparecer. Um método validado focado em vídeos virais, escolha de produtos de alta conversão e escala automática via WhatsApp.",
+      "imagem": "livros/img/afiliado-pro-escala.png",
+      "alt": "Capa do curso Afiliado Pro: Do Zero à Escala - MAREVO",
+      "loading": "lazy",
+      "arquivo": "livros/afiliados.html",
+      "categorias": ["marketing", "vendas", "renda-extra", "estrategia"]
+    },
+    {
       "id": "trabalho-focado",
       "titulo": "Trabalho Focado – Como Ter Sucesso em um Mundo Distraído",
       "autor": "Cal Newport",
